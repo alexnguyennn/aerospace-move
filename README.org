@@ -1,0 +1,14 @@
+#+title: Readme
+
+* Yabai Move
+
+This repo is intended to contain tools for batching up move commands from =yabai= on MacOS.
+
+Tools should expect to consume configuration that contains move rules in ~${XDG_HOME}/yabai/yabai-move~ on local machine.
+* Implement list
+- [ ] come up with config schema
+- [ ] minimal implementation consuming and validating config schema
+- [ ] implement and test way to queue up and fire off space move commands
+  - (is there a delay required? is there in built method?)
+- [ ] implement launcher
+  - [ ] mvp version can be a fzf terminal window script
