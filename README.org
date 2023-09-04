@@ -6,9 +6,20 @@ This repo is intended to contain tools for batching up move commands from =yabai
 
 Tools should expect to consume configuration that contains move rules in ~${XDG_HOME}/yabai/yabai-move~ on local machine.
 * Implement list
-- [ ] come up with config schema
-- [ ] minimal implementation consuming and validating config schema
-- [ ] implement and test way to queue up and fire off space move commands
+- [X] come up with config schema
+  - tested - generally will validate a yaml input
+- [X] implement and test way to queue up and fire off space move commands
   - (is there a delay required? is there in built method?)
+  - nope, works out of the box - yabai handles many quick commands
+- [X] minimal implementation consuming and validating config schema
+- [X] logic
+  - can't try to put a single window id in 2 places - fail early if multiple matches happens
+- [X] implement matching on title regex and app regex
 - [ ] implement launcher
   - [ ] mvp version can be a fzf terminal window script
+- [ ] schema implement optional fields
+  - if any one of window rule fields is specified, use it
+  - if multiple are specified, apply them
+  - should be one of (app | appRegex) |
+  - can't have title + titleRegex or app + appregex
+  - every other combo, there or not is ok
