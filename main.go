@@ -60,10 +60,17 @@ var cmdHello = &cobra.Command{
 	Short: "Say hello",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Hello, World!")
-		xdgHome := os.Getenv("XDG_CONFIG_HOME")
+		configPath := os.Getenv("YM_FILE")
 		// TODO; make this use a dhall file validated and generated from yaml
 		// maybe use exec and reader unmarshall method to try
-		configPath := path.Join(xdgHome, "yabai", "yabai-move", "work-desk.dhall")
+		if len(configPath) == 0 {
+			xdgHome := os.Getenv("XDG_CONFIG_HOME")
+			if len(xdgHome) == 0 {
+				xdgHome = fmt.Sprintf("%s/.config", os.Getenv("HOME"))
+			}
+			configPath = path.Join(xdgHome, "yabai", "yabai-move", "work-desk.dhall")
+		}
+
 		var spacesConfig Spaces
 		err := dhall.UnmarshalFile(configPath, &spacesConfig)
 		if err != nil {
