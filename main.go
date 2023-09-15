@@ -100,7 +100,8 @@ var cmdHello = &cobra.Command{
 				// windowMatches, err := script.Echo(windowsString).JQ(filterString).String()
 				window, err := script.Echo(windowsString).JQ(filterString).String()
 				if err != nil {
-					panic(err)
+					panic(fmt.Sprintf("ruleTitle: %s, ruleApp: %s, err: %s",
+					rule.TitleRegex, rule.AppRegex, err.Error()))
 				}
 
 				if strings.Contains(window, "null") || len(window) == 0 {
