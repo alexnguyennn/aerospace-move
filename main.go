@@ -54,7 +54,6 @@ type Window struct {
 	Title string `json:"title"`
 }
 
-
 var cmdHello = &cobra.Command{
 	Use:   "hello",
 	Short: "Say hello",

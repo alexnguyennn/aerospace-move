@@ -1,6 +1,6 @@
 module yabai_move
 
-go 1.18
+go 1.21
 
 require (
 	github.com/philandstuff/dhall-golang/v6 v6.0.2
