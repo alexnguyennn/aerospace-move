@@ -54,6 +54,8 @@ type Window struct {
 	Title string `json:"title"`
 }
 
+//go:generate interfacer -for github.com/bitfield/script.Pipe -as mock.Pipe -o interfaces/pipe.go
+
 var cmdHello = &cobra.Command{
 	Use:   "hello",
 	Short: "Say hello",
