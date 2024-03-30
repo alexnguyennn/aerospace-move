@@ -17,7 +17,7 @@ import (
 func main() {
 	var cfgFile string
 
-	var rootCmd = &cobra.Command{Use: "yabai_move"}
+	var rootCmd = &cobra.Command{Use: "aerospace_move"}
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.myapp.yaml)")
 
@@ -39,8 +39,8 @@ type WindowRule struct {
 }
 
 type Space struct {
-	Index uint8 `dhall:"index"`
-	Name  string `dhall:"name"`
+	Index uint8        `dhall:"index"`
+	Name  string       `dhall:"name"`
 	Rules []WindowRule `dhall:"rules"`
 }
 
@@ -49,8 +49,8 @@ type Spaces struct {
 }
 
 type Window struct {
-	ID uint64 `json:"id"`
-	App string `json:"app"`
+	ID    uint64 `json:"id"`
+	App   string `json:"app"`
 	Title string `json:"title"`
 }
 
@@ -69,7 +69,7 @@ var cmdHello = &cobra.Command{
 			if len(xdgHome) == 0 {
 				xdgHome = fmt.Sprintf("%s/.config", os.Getenv("HOME"))
 			}
-			configPath = path.Join(xdgHome, "yabai", "yabai-move", "work-desk.dhall")
+			configPath = path.Join(xdgHome, "aerospace", "aerospace-move", "work-desk.dhall")
 		}
 
 		var spacesConfig Spaces
@@ -78,7 +78,7 @@ var cmdHello = &cobra.Command{
 			panic(err)
 		}
 
-		windowsString, err := script.Exec("yabai -m query --windows").String()
+		windowsString, err := script.Exec("aerospace -m query --windows").String()
 		if err != nil {
 			panic(err)
 		}
@@ -93,16 +93,21 @@ var cmdHello = &cobra.Command{
 				// map(select((."title" | test("\\[work\\]")) and (."app" | test("firefox"; "i")))) | if [.] | length >= 1 then { id: .id, app: .app, title: .title }  else "" end
 				//map(select((."title" | test("\\[work\\]")) and (."app" | test("firefox"; "i"))))
 				//map(select((."title" | test("\\[work\\]")) and (."app" | test("firefox"; "i")))) | if (. | length == 1) then .[] | {id : .id, app: .app, title: .title } else "" end
-					//`.[] | select((."title" | test("%s")) and (."app" | test("%s"; "i"))) | { id: .id, app: .app, title: .title }`,
+				//`.[] | select((."title" | test("%s")) and (."app" | test("%s"; "i"))) | { id: .id, app: .app, title: .title }`,
 				// TODO; leave alone if space index is already correct
 				filterString := fmt.Sprintf(
 					`map(select((."title" | test("%s"; "i")) and (."app" | test("%s"; "i")))) | if (. | length == 1) then .[] | {id : .id, app: .app, title: .title } else null end`,
-					rule.TitleRegex, rule.AppRegex)
+					rule.TitleRegex, rule.AppRegex,
+				)
 				// windowMatches, err := script.Echo(windowsString).JQ(filterString).String()
 				window, err := script.Echo(windowsString).JQ(filterString).String()
 				if err != nil {
-					panic(fmt.Sprintf("ruleTitle: %s, ruleApp: %s, err: %s",
-					rule.TitleRegex, rule.AppRegex, err.Error()))
+					panic(
+						fmt.Sprintf(
+							"ruleTitle: %s, ruleApp: %s, err: %s",
+							rule.TitleRegex, rule.AppRegex, err.Error(),
+						),
+					)
 				}
 
 				if strings.Contains(window, "null") || len(window) == 0 {
@@ -124,7 +129,8 @@ var cmdHello = &cobra.Command{
 					panic(err)
 				}
 
-				fmt.Printf("[DEBUG] Space: %d rules - titleRegex: %s | appRegex: %s -> matched title: %s, app: %s, id: %s",
+				fmt.Printf(
+					"[DEBUG] Space: %d rules - titleRegex: %s | appRegex: %s -> matched title: %s, app: %s, id: %s",
 					space.Index, rule.TitleRegex, rule.AppRegex, app, title, id,
 				)
 
@@ -133,9 +139,11 @@ var cmdHello = &cobra.Command{
 
 			for spaceIndex, ids := range moveMap {
 				for _, id := range ids {
-					script.Exec(fmt.Sprintf(
-						"yabai -m window %s --space %d", id, spaceIndex,
-					)).Stdout()
+					script.Exec(
+						fmt.Sprintf(
+							"yabai -m window %s --space %d", id, spaceIndex,
+						),
+					).Stdout()
 				}
 			}
 

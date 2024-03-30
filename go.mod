@@ -1,4 +1,4 @@
-module yabai_move
+module aerospace_move
 
 go 1.21
 

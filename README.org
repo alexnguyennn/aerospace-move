@@ -1,10 +1,11 @@
-#+title: Readme
+#+title: Aerospace Move
 
-* Yabai Move
+This repo is intended to contain a binary for batching up move commands in =aerospace= on MacOS.
 
-This repo is intended to contain tools for batching up move commands from =yabai= on MacOS.
+This is necessary as it does not yet support workspace allocations for specific apps. On call, it should
+move all windows that match configured rules for a workspace to that appropriate workspace.
 
-Tools should expect to consume configuration that contains move rules in ~${XDG_HOME}/yabai/yabai-move~ on local machine.
+Tools should expect to consume configuration that contains move rules in ~${XDG_HOME}/aerospace/aerospace-move~ on local machine.
 * Implement list
 - [X] come up with config schema
   - tested - generally will validate a yaml input
@@ -15,6 +16,7 @@ Tools should expect to consume configuration that contains move rules in ~${XDG_
 - [X] logic
   - can't try to put a single window id in 2 places - fail early if multiple matches happens
 - [X] implement matching on title regex and app regex
+- [ ] refresh as aerospace-move
 - [ ] implement launcher
   - [ ] mvp version can be a fzf terminal window script
 - [ ] schema implement optional fields

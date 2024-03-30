@@ -1,0 +1,8 @@
+amends "pkl:Project"
+
+// TODO: package properly and figure out how private packages work
+package {
+  name = "aerospace-move"
+  baseUri = "package://github.com/alexnguyennn/aerospace-move/config"
+  sourceCode = "https://github.com/alexnguyennn/aerospace-move"
+}

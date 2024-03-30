@@ -1,0 +1,14 @@
+module com.alexnguyennn.aerospaceMove
+
+class windowRule {
+  title: String
+  titleRegex: Regex
+  appRegex: Regex
+  app: String
+}
+
+class  workspace {
+index: Int8
+name: String
+rules: List<windowRule>
+}
