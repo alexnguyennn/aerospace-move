@@ -1,0 +1,23 @@
+@go.Package { name = "github.com/alexnguyennn/aerospace-move/pkg/schema"}
+module com.alexnguyennn.aerospaceMove
+
+// provides @go.Package annotation
+import "package://pkg.pkl-lang.org/pkl-go/pkl.golang@0.6.0#/go.pkl"
+// TODO: check if description pulls through on remote
+/// windowRule description
+class windowRule {
+  /// name of the window title to match
+  title: String
+  /// regex to potentially match multiple window titles
+  titleRegex: String
+  appRegex: String
+  app: String
+}
+
+class  workspaceConfig {
+index: UInt8
+name: String
+rules: Listing<windowRule>
+}
+
+moveConfig: Listing<workspaceConfig>

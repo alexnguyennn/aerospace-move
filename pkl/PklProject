@@ -1,0 +1,12 @@
+amends "pkl:Project"
+
+// TODO: package properly and figure out how private packages work
+// private doesn't work without custom curl
+package {
+  name = "aerospace-move"
+  version = "0.0.0-test4"
+  baseUri = "package://github.com/alexnguyennn/\(name)/releases/download/test-0/\(name)"
+  sourceCode = "https://github.com/alexnguyennn/\(name)"
+  packageZipUrl = "https://github.com/alexnguyennn/\(name)/releases/download/test-0/\(name)@\(version).zip"
+
+}
