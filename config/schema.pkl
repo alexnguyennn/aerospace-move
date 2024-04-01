@@ -1,14 +1,20 @@
 module com.alexnguyennn.aerospaceMove
 
+// TODO: check if description pulls through on remote
+/// windowRule description
 class windowRule {
+  /// name of the window title to match
   title: String
+  /// regex to potentially match multiple window titles
   titleRegex: Regex
   appRegex: Regex
   app: String
 }
 
-class  workspace {
+class  workspaceConfig {
 index: Int8
 name: String
-rules: List<windowRule>
+rules: Listing<windowRule>
 }
+
+moveConfig: Listing<workspaceConfig>

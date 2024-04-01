@@ -5,3 +5,7 @@ tmp/
 
 
 yabai_move
+aerospace_move
+**/.out
+**/.kclvm
+
