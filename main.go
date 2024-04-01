@@ -1,29 +1,50 @@
 package main
 
 import (
+	"aerospace_move/pkg/schema"
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	path "path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
-	path "path/filepath"
-
-	dhall "github.com/philandstuff/dhall-golang/v6"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/bitfield/script"
+	"github.com/samber/lo"
 )
 
+// pkl-gen-go  pkl/schema.pkl --base-path github.com/alexnguyennn/aerospace-move
+
 func main() {
-	var cfgFile string
+	var rootCmd = cmd
 
-	var rootCmd = &cobra.Command{Use: "aerospace_move"}
+	rootCmd.PersistentFlags().String(
+		"pkl",
+		getDefaultPklPath(),
+		"pkl file",
+	)
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.myapp.yaml)")
+	rootCmd.PersistentFlags().Bool(
+		"dry-run",
+		false,
+		"toggle to only show debug logs",
+	)
 
-	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
+	err := viper.BindPFlag("pkl", rootCmd.PersistentFlags().Lookup("pkl"))
+	if err != nil {
+		panic(err)
+	}
 
-	rootCmd.AddCommand(cmdHello)
+	err = viper.BindPFlag("dry-run", rootCmd.PersistentFlags().Lookup("dry-run"))
+	if err != nil {
+		panic(err)
+	}
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -31,134 +52,158 @@ func main() {
 	}
 }
 
-type WindowRule struct {
-	Title      string `dhall:"title"`
-	TitleRegex string `dhall:"titleRegex"`
-	AppRegex   string `dhall:"appRegex"`
-	App        string `dhall:"app"`
-}
-
-type Space struct {
-	Index uint8        `dhall:"index"`
-	Name  string       `dhall:"name"`
-	Rules []WindowRule `dhall:"rules"`
-}
-
-type Spaces struct {
-	Spaces []Space `dhall:"spaces"`
-}
-
 type Window struct {
-	ID    uint64 `json:"id"`
-	App   string `json:"app"`
-	Title string `json:"title"`
+	PID   uint64
+	App   string
+	Title string
 }
 
-//go:generate interfacer -for github.com/bitfield/script.Pipe -as mock.Pipe -o interfaces/pipe.go
-
-var cmdHello = &cobra.Command{
-	Use:   "hello",
-	Short: "Say hello",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Hello, World!")
-		configPath := os.Getenv("YM_FILE")
-		// TODO; make this use a dhall file validated and generated from yaml
-		// maybe use exec and reader unmarshall method to try
-		if len(configPath) == 0 {
-			xdgHome := os.Getenv("XDG_CONFIG_HOME")
-			if len(xdgHome) == 0 {
-				xdgHome = fmt.Sprintf("%s/.config", os.Getenv("HOME"))
-			}
-			configPath = path.Join(xdgHome, "aerospace", "aerospace-move", "work-desk.dhall")
-		}
-
-		var spacesConfig Spaces
-		err := dhall.UnmarshalFile(configPath, &spacesConfig)
+var cmd = &cobra.Command{
+	Use:   "aerospace-move",
+	Short: "runs aerospace move based on given config as pkl file",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		amCfg, err := parsePklConfig()
 		if err != nil {
-			panic(err)
+			return err
 		}
 
-		windowsString, err := script.Exec("aerospace -m query --windows").String()
+		windowStr, err := script.Exec(
+			fmt.Sprintf(
+				"aerospace list-windows --all",
+			),
+		).Slice()
 		if err != nil {
-			panic(err)
+			return err
 		}
 
-		moveMap := map[uint8][]string{}
+		windows, err := processWindows(windowStr)
+		if err != nil {
+			return err
+		}
+		// first
+		alreadyInWorkspaceRegex, err := regexp.Compile(`Window\s'.*'\salready\sbelongs\sto\sworkspace\s'.*'`)
+		if err != nil {
+			return err
+		}
 
-		for _, space := range spacesConfig.Spaces {
-			moveMap[space.Index] = []string{}
+		_, err = fmt.Fprintln(cmd.ErrOrStderr(), "processed windows:", windows)
+		if err != nil {
+			return err
+		}
 
+		for _, space := range amCfg.MoveConfig {
 			for _, rule := range space.Rules {
-				//.[] | select((."title" | test("\\[work\\]")) and (."app" | test("firefox"; "i"))) | { t: .title, t: .app }
-				// map(select((."title" | test("\\[work\\]")) and (."app" | test("firefox"; "i")))) | if [.] | length >= 1 then { id: .id, app: .app, title: .title }  else "" end
-				//map(select((."title" | test("\\[work\\]")) and (."app" | test("firefox"; "i"))))
-				//map(select((."title" | test("\\[work\\]")) and (."app" | test("firefox"; "i")))) | if (. | length == 1) then .[] | {id : .id, app: .app, title: .title } else "" end
-				//`.[] | select((."title" | test("%s")) and (."app" | test("%s"; "i"))) | { id: .id, app: .app, title: .title }`,
-				// TODO; leave alone if space index is already correct
-				filterString := fmt.Sprintf(
-					`map(select((."title" | test("%s"; "i")) and (."app" | test("%s"; "i")))) | if (. | length == 1) then .[] | {id : .id, app: .app, title: .title } else null end`,
-					rule.TitleRegex, rule.AppRegex,
+				var tRegex *regexp.Regexp
+				var aRegex *regexp.Regexp
+				if !lo.IsEmpty(rule.TitleRegex) {
+					tRegex, err = regexp.Compile(rule.TitleRegex)
+					if err != nil {
+						return err
+					}
+				}
+				if !lo.IsEmpty(rule.AppRegex) {
+					aRegex, err = regexp.Compile(rule.AppRegex)
+					if err != nil {
+						return err
+					}
+				}
+				spaceMatchedWin := lo.Filter(
+					windows, func(w Window, _ int) bool {
+						if lo.IsEmpty(w.Title) && lo.IsEmpty(w.App) {
+							return false
+						}
+
+						acmp := lo.TernaryF(
+							lo.IsNil(aRegex),
+							func() bool { return w.App == rule.App },
+							func() bool { return aRegex.MatchString(w.App) },
+						)
+						tcmp := lo.TernaryF(
+							lo.IsNil(tRegex),
+							func() bool { return w.Title == rule.Title },
+							func() bool { return tRegex.MatchString(w.Title) },
+						)
+
+						return acmp && tcmp
+					},
 				)
-				// windowMatches, err := script.Echo(windowsString).JQ(filterString).String()
-				window, err := script.Echo(windowsString).JQ(filterString).String()
-				if err != nil {
-					panic(
-						fmt.Sprintf(
-							"ruleTitle: %s, ruleApp: %s, err: %s",
-							rule.TitleRegex, rule.AppRegex, err.Error(),
-						),
+				for _, w := range spaceMatchedWin {
+					_, err = fmt.Fprintln(
+						cmd.OutOrStdout(),
+						fmt.Sprintf("DEBUG: matched rule, sending w: %+v to workspace: %d", w, space.Index),
 					)
-				}
+					if err != nil {
+						return err
+					}
 
-				if strings.Contains(window, "null") || len(window) == 0 {
-					continue
-				}
+					if viper.GetBool("dry-run") {
+						// skip running
+						continue
+					}
 
-				app, err := script.Echo(window).JQ(".app").String()
-				if err != nil {
-					panic(fmt.Errorf("rule: %+v, win: %d, err:%s", rule, len(window), err.Error()))
-				}
-
-				title, err := script.Echo(window).JQ(".title").String()
-				if err != nil {
-					panic(err)
-				}
-
-				id, err := script.Echo(window).JQ(".id").String()
-				if err != nil {
-					panic(err)
-				}
-
-				fmt.Printf(
-					"[DEBUG] Space: %d rules - titleRegex: %s | appRegex: %s -> matched title: %s, app: %s, id: %s",
-					space.Index, rule.TitleRegex, rule.AppRegex, app, title, id,
-				)
-
-				moveMap[space.Index] = append(moveMap[space.Index], id)
-			}
-
-			for spaceIndex, ids := range moveMap {
-				for _, id := range ids {
-					script.Exec(
+					outBuf := bytes.Buffer{}
+					_, err = script.Exec(
 						fmt.Sprintf(
-							"yabai -m window %s --space %d", id, spaceIndex,
+							`sh -c 'hs -c "focusWindowByPid(%d)" && aerospace move-node-to-workspace %d'`,
+							w.PID, space.Index,
 						),
-					).Stdout()
+					).WithStderr(&outBuf).Stdout()
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "DEBUG stdErr: got output:", outBuf.String())
+					if err != nil && !alreadyInWorkspaceRegex.MatchString(outBuf.String()) {
+						return err
+					}
 				}
 			}
-
 		}
 
+		_, err = script.Exec(`hs -c 'showAlert("aerospace-move complete")'`).Stdout()
+		return err
 	},
 }
 
-func init() {
-	cobra.OnInitialize(initConfig)
+func processWindows(lines []string) ([]Window, error) {
+	var windows []Window
+	for _, line := range lines {
+		fields := strings.Split(line, "|")
+		if len(fields) != 3 {
+			_, err := fmt.Fprintln(
+				os.Stderr,
+				"WARN received line that splits into more fields than expected for a window: ",
+				line,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		pid, err := strconv.ParseUint(strings.TrimSpace(fields[0]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing PID: %w", err)
+		}
+		app := strings.TrimSpace(fields[1])
+		var title = ""
+		if len(fields) >= 3 {
+			title = strings.TrimSpace(
+				lo.Ternary(len(fields) > 3, strings.Join(fields[2:], ""), fields[2]),
+			)
+		}
+		windows = append(windows, Window{PID: pid, App: app, Title: title})
+	}
+	return windows, nil
 }
 
-func initConfig() {
-	if viper.GetString("config") != "" {
-		viper.SetConfigFile(viper.GetString("config"))
-		viper.ReadInConfig()
+func getDefaultPklPath() string {
+	xdgHome := os.Getenv("XDG_CONFIG_HOME")
+	if len(xdgHome) == 0 {
+		xdgHome = fmt.Sprintf("%s/.config", os.Getenv("HOME"))
 	}
+	return path.Join(xdgHome, "aerospace", "aerospace-move", "work-desk.pkl")
+}
+
+func parsePklConfig() (*schema.AerospaceMove, error) {
+	pklPath := viper.GetString("pkl")
+	if pklPath != "" {
+		return schema.LoadFromPath(context.Background(), pklPath)
+	}
+	return nil, errors.New("got an empty pkl path when parsing config")
 }

@@ -16,7 +16,7 @@ Tools should expect to consume configuration that contains move rules in ~${XDG_
 - [X] logic
   - can't try to put a single window id in 2 places - fail early if multiple matches happens
 - [X] implement matching on title regex and app regex
-- [ ] refresh as aerospace-move
+- [X] refresh as aerospace-move
 - [ ] implement launcher
   - [ ] mvp version can be a fzf terminal window script
 - [ ] schema implement optional fields

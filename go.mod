@@ -3,14 +3,19 @@ module aerospace_move
 go 1.21
 
 require (
+	github.com/apple/pkl-go v0.6.0
 	github.com/philandstuff/dhall-golang/v6 v6.0.2
-	github.com/spf13/cobra v1.7.0
+	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.16.0
 )
 
 require (
 	github.com/itchyny/gojq v0.12.12 // indirect
 	github.com/itchyny/timefmt-go v0.1.5 // indirect
+	github.com/samber/lo v1.39.0 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17 // indirect
 	mvdan.cc/sh/v3 v3.6.0 // indirect
 )
 

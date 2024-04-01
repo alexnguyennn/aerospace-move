@@ -9,3 +9,6 @@ aerospace_move
 **/.out
 **/.kclvm
 
+# generated schema
+pkg/**/schema
+
