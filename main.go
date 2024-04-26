@@ -53,9 +53,10 @@ func main() {
 }
 
 type Window struct {
-	PID   uint64
-	App   string
-	Title string
+	PID       uint64
+	App       string
+	Title     string
+	Workspace uint8
 }
 
 var cmd = &cobra.Command{
@@ -67,16 +68,7 @@ var cmd = &cobra.Command{
 			return err
 		}
 
-		windowStr, err := script.Exec(
-			fmt.Sprintf(
-				"aerospace list-windows --all",
-			),
-		).Slice()
-		if err != nil {
-			return err
-		}
-
-		windows, err := processWindows(windowStr)
+		windows, err := getWindows()
 		if err != nil {
 			return err
 		}
@@ -124,7 +116,9 @@ var cmd = &cobra.Command{
 							func() bool { return tRegex.MatchString(w.Title) },
 						)
 
-						return acmp && tcmp
+						shouldMove := w.Workspace != space.Index
+
+						return acmp && tcmp && shouldMove
 					},
 				)
 				for _, w := range spaceMatchedWin {
@@ -143,11 +137,10 @@ var cmd = &cobra.Command{
 
 					outBuf := bytes.Buffer{}
 					_, err = script.Exec(
-						fmt.Sprintf(
-							`sh -c 'hs -c "focusWindowByPid(%d)" && aerospace move-node-to-workspace %d'`,
-							w.PID, space.Index,
-						),
-					).WithStderr(&outBuf).Stdout()
+						fmt.Sprintf(`aerospace focus --window-id '%d'`, w.PID),
+					).Exec(fmt.Sprintf(`aerospace move-node-to-workspace '%d'`, space.Index)).
+						WithStderr(&outBuf).Stdout()
+
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "DEBUG stdErr: got output:", outBuf.String())
 					if err != nil && !alreadyInWorkspaceRegex.MatchString(outBuf.String()) {
 						return err
@@ -161,7 +154,40 @@ var cmd = &cobra.Command{
 	},
 }
 
-func processWindows(lines []string) ([]Window, error) {
+func getWindows() ([]Window, error) {
+	nLines, err := script.Exec(`aerospace list-workspaces --all`).CountLines()
+	if err != nil {
+		return nil, err
+	}
+
+	errs := make([]error, nLines)
+	windows := lo.FlatMap(
+		lo.Range(nLines), func(_ int, idx int) []Window {
+			windowStr, err := script.Exec(
+				fmt.Sprintf(
+					`aerospace list-windows --workspace '%d'`, idx,
+				),
+			).Slice()
+
+			if err != nil {
+				errs[idx] = err
+			}
+
+			workspaceWindows, err := processWindows(idx, windowStr)
+			errs[idx] = err
+			return workspaceWindows
+		},
+	)
+
+	windowGetErr := errors.Join(errs...)
+	if windowGetErr != nil {
+		return nil, windowGetErr
+	}
+
+	return windows, nil
+}
+
+func processWindows(ws int, lines []string) ([]Window, error) {
 	var windows []Window
 	for _, line := range lines {
 		fields := strings.Split(line, "|")
@@ -187,7 +213,7 @@ func processWindows(lines []string) ([]Window, error) {
 				lo.Ternary(len(fields) > 3, strings.Join(fields[2:], ""), fields[2]),
 			)
 		}
-		windows = append(windows, Window{PID: pid, App: app, Title: title})
+		windows = append(windows, Window{PID: pid, App: app, Title: title, Workspace: uint8(ws)})
 	}
 	return windows, nil
 }
