@@ -1,6 +1,6 @@
 module aerospace_move
 
-go 1.21
+go 1.22
 
 require (
 	github.com/apple/pkl-go v0.6.0
