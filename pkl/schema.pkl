@@ -2,7 +2,7 @@
 module com.alexnguyennn.aerospaceMove
 
 // provides @go.Package annotation
-import "package://pkg.pkl-lang.org/pkl-go/pkl.golang@0.6.0#/go.pkl"
+import "package://pkg.pkl-lang.org/pkl-go/pkl.golang@0.8.0#/go.pkl"
 // TODO: check if description pulls through on remote
 /// windowRule description
 class windowRule {
@@ -20,4 +20,6 @@ name: String
 rules: Listing<windowRule>
 }
 
+/// optional rules where, if provided will allow all matched windows to be restarted before moving
+restartConfig: Listing<windowRule>
 moveConfig: Listing<workspaceConfig>

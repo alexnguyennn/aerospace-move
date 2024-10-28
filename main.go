@@ -4,16 +4,14 @@ import (
 	"aerospace_move/pkg/schema"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"os"
 	path "path/filepath"
 	"regexp"
-	"strconv"
-	"strings"
-
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/bitfield/script"
 	"github.com/samber/lo"
@@ -53,10 +51,16 @@ func main() {
 }
 
 type Window struct {
-	PID       uint64
-	App       string
-	Title     string
 	Workspace uint8
+	AerospaceWindow
+}
+
+type AerospaceWindow struct {
+	AppBundleID string `json:"app-bundle-id"`
+	AppPID      int    `json:"app-pid"`
+	WindowTitle string `json:"window-title"`
+	AppName     string `json:"app-name"`
+	WindowID    uint64 `json:"window-id"`
 }
 
 var cmd = &cobra.Command{
@@ -68,10 +72,78 @@ var cmd = &cobra.Command{
 			return err
 		}
 
+		/*		// TODO: add in once window struct is fixed
+				windows, err := getWindows()
+				if err != nil {
+					return err
+				}
+
+				for _, rule := range amCfg.RestartConfig {
+					var tRegex *regexp.Regexp
+					var aRegex *regexp.Regexp
+					if !lo.IsEmpty(rule.TitleRegex) {
+						tRegex, err = regexp.Compile(rule.TitleRegex)
+						if err != nil {
+							return err
+						}
+					}
+					if !lo.IsEmpty(rule.AppRegex) {
+						aRegex, err = regexp.Compile(rule.AppRegex)
+						if err != nil {
+							return err
+						}
+					}
+					matchedWins := lo.Filter(
+						windows, func(w Window, _ int) bool {
+							if lo.IsEmpty(w.Title) && lo.IsEmpty(w.App) {
+								return false
+							}
+
+							acmp := lo.TernaryF(
+								lo.IsNil(aRegex),
+								func() bool { return w.App == rule.App },
+								func() bool { return aRegex.MatchString(w.App) },
+							)
+							tcmp := lo.TernaryF(
+								lo.IsNil(tRegex),
+								func() bool { return w.Title == rule.Title },
+								func() bool { return tRegex.MatchString(w.Title) },
+							)
+
+							return acmp && tcmp
+						},
+					)
+
+					// TOOD: grab bundle id info
+					matchedAppBundleIDs := lo.Uniq(
+						lo.Map(
+							matchedWins, func(w Window, _ int) string {
+								return w.App
+							},
+						),
+					)
+					for _, a := range matchedAppBundleIDs {
+						_, err = fmt.Fprintln(
+							cmd.OutOrStdout(),
+							fmt.Sprintf("DEBUG: matched rule, restarting app %s", a),
+						)
+						if err != nil {
+							return err
+						}
+
+						if viper.GetBool("dry-run") {
+							// skip running
+							continue
+						}
+						// TODO: add quit and restart logic
+					}
+				}*/
+
 		windows, err := getWindows()
 		if err != nil {
 			return err
 		}
+
 		// first
 		alreadyInWorkspaceRegex, err := regexp.Compile(`Window\s'.*'\salready\sbelongs\sto\sworkspace\s'.*'`)
 		if err != nil {
@@ -101,19 +173,19 @@ var cmd = &cobra.Command{
 				}
 				spaceMatchedWin := lo.Filter(
 					windows, func(w Window, _ int) bool {
-						if lo.IsEmpty(w.Title) && lo.IsEmpty(w.App) {
+						if lo.IsEmpty(w.WindowTitle) && lo.IsEmpty(w.AppName) {
 							return false
 						}
 
 						acmp := lo.TernaryF(
 							lo.IsNil(aRegex),
-							func() bool { return w.App == rule.App },
-							func() bool { return aRegex.MatchString(w.App) },
+							func() bool { return w.AppName == rule.App },
+							func() bool { return aRegex.MatchString(w.AppName) },
 						)
 						tcmp := lo.TernaryF(
 							lo.IsNil(tRegex),
-							func() bool { return w.Title == rule.Title },
-							func() bool { return tRegex.MatchString(w.Title) },
+							func() bool { return w.WindowTitle == rule.Title },
+							func() bool { return tRegex.MatchString(w.WindowTitle) },
 						)
 
 						shouldMove := w.Workspace != space.Index
@@ -135,12 +207,15 @@ var cmd = &cobra.Command{
 						continue
 					}
 
+					// TODO: try goroutines for this and see if it goes any faster
 					outBuf := bytes.Buffer{}
 					_, err = script.Exec(
-						fmt.Sprintf(`aerospace focus --window-id '%d'`, w.PID),
-					).Exec(fmt.Sprintf(`aerospace move-node-to-workspace '%d'`, space.Index)).
-						WithStderr(&outBuf).Stdout()
-
+						fmt.Sprintf(
+							`aerospace move-node-to-workspace --window-id '%d' '%d'`,
+							w.WindowID,
+							space.Index,
+						),
+					).WithStderr(&outBuf).Stdout()
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "DEBUG stdErr: got output:", outBuf.String())
 					if err != nil && !alreadyInWorkspaceRegex.MatchString(outBuf.String()) {
 						return err
@@ -160,22 +235,43 @@ func getWindows() ([]Window, error) {
 		return nil, err
 	}
 
-	errs := make([]error, nLines)
+	errs := make([]error, nLines*2)
 	windows := lo.FlatMap(
 		lo.Range(nLines), func(_ int, idx int) []Window {
 			windowStr, err := script.Exec(
 				fmt.Sprintf(
-					`aerospace list-windows --workspace '%d'`, idx,
+					`aerospace list-windows --workspace "%d" --json --format "%%{app-pid} %%{app-name} %%{app-bundle-id} %%{window-title} %%{window-id}"`,
+					idx,
 				),
-			).Slice()
-
+			).String()
 			if err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, "WARN: error getting windows for workspace: ", idx, err)
 				errs[idx] = err
+				return nil
 			}
 
-			workspaceWindows, err := processWindows(idx, windowStr)
-			errs[idx] = err
-			return workspaceWindows
+			var workspaceWindows []AerospaceWindow
+			err = json.Unmarshal([]byte(windowStr), &workspaceWindows)
+			if err != nil {
+				_, _ = fmt.Fprintln(
+					os.Stderr,
+					"WARN: error getting aerospoace windows for workspace: ",
+					idx,
+					err,
+					windowStr,
+				)
+				errs[idx] = err
+				return nil
+			}
+
+			return lo.Map(
+				workspaceWindows, func(w AerospaceWindow, _ int) Window {
+					return Window{
+						AerospaceWindow: w,
+						Workspace:       uint8(idx),
+					}
+				},
+			)
 		},
 	)
 
@@ -184,37 +280,6 @@ func getWindows() ([]Window, error) {
 		return nil, windowGetErr
 	}
 
-	return windows, nil
-}
-
-func processWindows(ws int, lines []string) ([]Window, error) {
-	var windows []Window
-	for _, line := range lines {
-		fields := strings.Split(line, "|")
-		if len(fields) != 3 {
-			_, err := fmt.Fprintln(
-				os.Stderr,
-				"WARN received line that splits into more fields than expected for a window: ",
-				line,
-			)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		pid, err := strconv.ParseUint(strings.TrimSpace(fields[0]), 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing PID: %w", err)
-		}
-		app := strings.TrimSpace(fields[1])
-		var title = ""
-		if len(fields) >= 3 {
-			title = strings.TrimSpace(
-				lo.Ternary(len(fields) > 3, strings.Join(fields[2:], ""), fields[2]),
-			)
-		}
-		windows = append(windows, Window{PID: pid, App: app, Title: title, Workspace: uint8(ws)})
-	}
 	return windows, nil
 }
 
