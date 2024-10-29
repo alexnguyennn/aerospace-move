@@ -50,17 +50,13 @@ func main() {
 	}
 }
 
-type Window struct {
-	Workspace uint8
-	AerospaceWindow
-}
-
 type AerospaceWindow struct {
 	AppBundleID string `json:"app-bundle-id"`
 	AppPID      int    `json:"app-pid"`
 	WindowTitle string `json:"window-title"`
 	AppName     string `json:"app-name"`
 	WindowID    uint64 `json:"window-id"`
+	Workspace   string `json:"workspace"`
 }
 
 var cmd = &cobra.Command{
@@ -172,7 +168,7 @@ var cmd = &cobra.Command{
 					}
 				}
 				spaceMatchedWin := lo.Filter(
-					windows, func(w Window, _ int) bool {
+					windows, func(w AerospaceWindow, _ int) bool {
 						if lo.IsEmpty(w.WindowTitle) && lo.IsEmpty(w.AppName) {
 							return false
 						}
@@ -188,7 +184,7 @@ var cmd = &cobra.Command{
 							func() bool { return tRegex.MatchString(w.WindowTitle) },
 						)
 
-						shouldMove := w.Workspace != space.Index
+						shouldMove := w.Workspace != space.Name
 
 						return acmp && tcmp && shouldMove
 					},
@@ -196,7 +192,7 @@ var cmd = &cobra.Command{
 				for _, w := range spaceMatchedWin {
 					_, err = fmt.Fprintln(
 						cmd.OutOrStdout(),
-						fmt.Sprintf("DEBUG: matched rule, sending w: %+v to workspace: %d", w, space.Index),
+						fmt.Sprintf("DEBUG: matched rule, sending w: %+v to workspace: %s", w, space.Name),
 					)
 					if err != nil {
 						return err
@@ -211,9 +207,9 @@ var cmd = &cobra.Command{
 					outBuf := bytes.Buffer{}
 					_, err = script.Exec(
 						fmt.Sprintf(
-							`aerospace move-node-to-workspace --window-id '%d' '%d'`,
+							`aerospace move-node-to-workspace --window-id '%d' '%s'`,
 							w.WindowID,
-							space.Index,
+							space.Name,
 						),
 					).WithStderr(&outBuf).Stdout()
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "DEBUG stdErr: got output:", outBuf.String())
@@ -229,58 +225,30 @@ var cmd = &cobra.Command{
 	},
 }
 
-func getWindows() ([]Window, error) {
-	nLines, err := script.Exec(`aerospace list-workspaces --all`).CountLines()
+func getWindows() ([]AerospaceWindow, error) {
+	windowStr, err := script.Exec(
+		fmt.Sprintf(
+			`aerospace list-windows --all --json --format "%%{app-pid} %%{app-name} %%{app-bundle-id} %%{window-title} %%{window-id} %%{workspace}"`,
+		),
+	).String()
 	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "WARN: error getting windows for workspace: ", err)
 		return nil, err
 	}
 
-	errs := make([]error, nLines*2)
-	windows := lo.FlatMap(
-		lo.Range(nLines), func(_ int, idx int) []Window {
-			windowStr, err := script.Exec(
-				fmt.Sprintf(
-					`aerospace list-windows --workspace "%d" --json --format "%%{app-pid} %%{app-name} %%{app-bundle-id} %%{window-title} %%{window-id}"`,
-					idx,
-				),
-			).String()
-			if err != nil {
-				_, _ = fmt.Fprintln(os.Stderr, "WARN: error getting windows for workspace: ", idx, err)
-				errs[idx] = err
-				return nil
-			}
-
-			var workspaceWindows []AerospaceWindow
-			err = json.Unmarshal([]byte(windowStr), &workspaceWindows)
-			if err != nil {
-				_, _ = fmt.Fprintln(
-					os.Stderr,
-					"WARN: error getting aerospoace windows for workspace: ",
-					idx,
-					err,
-					windowStr,
-				)
-				errs[idx] = err
-				return nil
-			}
-
-			return lo.Map(
-				workspaceWindows, func(w AerospaceWindow, _ int) Window {
-					return Window{
-						AerospaceWindow: w,
-						Workspace:       uint8(idx),
-					}
-				},
-			)
-		},
-	)
-
-	windowGetErr := errors.Join(errs...)
-	if windowGetErr != nil {
-		return nil, windowGetErr
+	var workspaceWindows []AerospaceWindow
+	err = json.Unmarshal([]byte(windowStr), &workspaceWindows)
+	if err != nil {
+		_, _ = fmt.Fprintln(
+			os.Stderr,
+			"WARN: error getting aerospace windows:",
+			err,
+			windowStr,
+		)
+		return nil, err
 	}
 
-	return windows, nil
+	return workspaceWindows, nil
 }
 
 func getDefaultPklPath() string {

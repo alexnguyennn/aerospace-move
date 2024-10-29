@@ -15,7 +15,6 @@ class windowRule {
 }
 
 class  workspaceConfig {
-index: UInt8
 name: String
 rules: Listing<windowRule>
 }
