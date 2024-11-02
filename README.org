@@ -19,9 +19,15 @@ Tools should expect to consume configuration that contains move rules in ~${XDG_
 - [X] refresh as aerospace-move
 - [ ] implement launcher
   - [ ] mvp version can be a fzf terminal window script
+    - implemented locally but not committed; move here and  document how to move
+- [ ] add real logging (flag + default level to info)
+- [ ] add unit tests
+- [ ] use a real result type/optionals around channels
 - [ ] schema implement optional fields
   - if any one of window rule fields is specified, use it
   - if multiple are specified, apply them
   - should be one of (app | appRegex) |
   - can't have title + titleRegex or app + appregex
   - every other combo, there or not is ok
+- [ ] factor out an interface to abstract aerospace specific parts
+  - could we make it work for another tiling window manager given it has window listing/ moving capability?

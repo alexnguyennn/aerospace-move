@@ -71,6 +71,11 @@ type AerospaceWindow struct {
 	Workspace   string `json:"workspace"`
 }
 
+type WindowMove struct {
+	w                AerospaceWindow
+	destinationSpace string
+}
+
 var cmd = &cobra.Command{
 	Use:   "aerospace-move",
 	Short: "runs aerospace move based on given config as pkl file",
@@ -90,79 +95,11 @@ var cmd = &cobra.Command{
 			return err
 		}
 
-		// first
-		alreadyInWorkspaceRegex, err := regexp.Compile(`Window\s'.*'\salready\sbelongs\sto\sworkspace\s'.*'`)
+		wms := parseMoves(amCfg, windows)
+
+		err = handleMatched(wms)
 		if err != nil {
 			return err
-		}
-
-		for _, space := range amCfg.MoveConfig {
-			for _, rule := range space.Rules {
-				var tRegex *regexp.Regexp
-				var aRegex *regexp.Regexp
-				if !lo.IsEmpty(rule.TitleRegex) {
-					tRegex, err = regexp.Compile(rule.TitleRegex)
-					if err != nil {
-						return err
-					}
-				}
-				if !lo.IsEmpty(rule.AppRegex) {
-					aRegex, err = regexp.Compile(rule.AppRegex)
-					if err != nil {
-						return err
-					}
-				}
-				spaceMatchedWin := lo.Filter(
-					windows, func(w AerospaceWindow, _ int) bool {
-						if lo.IsEmpty(w.WindowTitle) && lo.IsEmpty(w.AppName) {
-							return false
-						}
-
-						acmp := lo.TernaryF(
-							lo.IsNil(aRegex),
-							func() bool { return w.AppName == rule.App },
-							func() bool { return aRegex.MatchString(w.AppName) },
-						)
-						tcmp := lo.TernaryF(
-							lo.IsNil(tRegex),
-							func() bool { return w.WindowTitle == rule.Title },
-							func() bool { return tRegex.MatchString(w.WindowTitle) },
-						)
-
-						shouldMove := w.Workspace != space.Name
-
-						return acmp && tcmp && shouldMove
-					},
-				)
-				for _, w := range spaceMatchedWin {
-					_, err = fmt.Fprintln(
-						cmd.OutOrStdout(),
-						fmt.Sprintf("DEBUG: matched rule, sending w: %+v to workspace: %s", w, space.Name),
-					)
-					if err != nil {
-						return err
-					}
-
-					if viper.GetBool("dry-run") {
-						// skip running
-						continue
-					}
-
-					// TODO: try goroutines for this and see if it goes any faster
-					outBuf := bytes.Buffer{}
-					_, err = script.Exec(
-						fmt.Sprintf(
-							`aerospace move-node-to-workspace --window-id '%d' '%s'`,
-							w.WindowID,
-							space.Name,
-						),
-					).WithStderr(&outBuf).Stdout()
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "DEBUG stdErr: got output:", outBuf.String())
-					if err != nil && !alreadyInWorkspaceRegex.MatchString(outBuf.String()) {
-						return err
-					}
-				}
-			}
 		}
 
 		_, err = script.Exec(`hs -c 'showAlert("aerospace-move complete")'`).Stdout()
@@ -172,6 +109,145 @@ var cmd = &cobra.Command{
 		}
 		return err
 	},
+}
+
+func parseMoves(amCfg *schema.AerospaceMove, ws []AerospaceWindow) []WindowMove {
+	return lo.FlatMap(
+		amCfg.MoveConfig,
+		func(wc *schema.WorkspaceConfig, _ int) []WindowMove {
+			matchedWs := lo.FlatMap(
+				wc.Rules, func(r *schema.WindowRule, _ int) []AerospaceWindow {
+					var tRegex *regexp.Regexp
+					var aRegex *regexp.Regexp
+					var err error
+					if !lo.IsEmpty(r.TitleRegex) {
+						tRegex, err = regexp.Compile(r.TitleRegex)
+						if err != nil {
+							// log a warning
+							_, _ = fmt.Fprintln(
+								os.Stderr,
+								"WARN: skipping matches for rule, error compiling regex:",
+								r,
+								r.TitleRegex,
+							)
+							return nil
+						}
+					}
+					if !lo.IsEmpty(r.AppRegex) {
+						aRegex, err = regexp.Compile(r.AppRegex)
+						if err != nil {
+							_, _ = fmt.Fprintln(
+								os.Stderr,
+								"WARN: skipping matches for rule, error compiling regex:",
+								r,
+								r.TitleRegex,
+							)
+							return nil
+						}
+					}
+					return lo.Filter(
+						ws, func(w AerospaceWindow, _ int) bool {
+							if lo.IsEmpty(w.WindowTitle) && lo.IsEmpty(w.AppName) {
+								return false
+							}
+
+							acmp := lo.TernaryF(
+								lo.IsNil(aRegex),
+								func() bool { return w.AppName == r.App },
+								func() bool { return aRegex.MatchString(w.AppName) },
+							)
+							tcmp := lo.TernaryF(
+								lo.IsNil(tRegex),
+								func() bool { return w.WindowTitle == r.Title },
+								func() bool { return tRegex.MatchString(w.WindowTitle) },
+							)
+
+							shouldMove := w.Workspace != wc.Name
+
+							return acmp && tcmp && shouldMove
+						},
+					)
+				},
+			)
+			return lo.Map(
+				matchedWs, func(w AerospaceWindow, _ int) WindowMove {
+					return WindowMove{w: w, destinationSpace: wc.Name}
+				},
+			)
+
+		},
+	)
+}
+
+func handleMatched(wms []WindowMove) error {
+	alreadyInWorkspaceRegex, err := regexp.Compile(`Window\s'.*'\salready\sbelongs\sto\sworkspace\s'.*'`)
+	if err != nil {
+		return err
+	}
+	moveCh := make(chan asyncResult)
+	errs := make([]error, len(wms))
+	for _, wm := range wms {
+		_, err = fmt.Fprintln(
+			os.Stderr,
+			fmt.Sprintf("DEBUG: matched rule, sending w: %+v to workspace: %s", wm.w, wm.destinationSpace),
+		)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		if viper.GetBool("dry-run") {
+			// skip running
+			continue
+		}
+
+		go moveWindow(*alreadyInWorkspaceRegex, wm.w.WindowID, wm.destinationSpace, moveCh)
+	}
+
+	for i := 0; i < len(wms); i++ { // only check for as many results as there are moves
+		select {
+		case moveRes := <-moveCh:
+			if moveRes.success && moveRes.err != nil {
+				_, _ = fmt.Fprintln(
+					os.Stderr,
+					"WARN: something non-fatal happened while moving window:",
+					moveRes.err,
+				)
+			}
+			if moveRes.err != nil {
+				_, _ = fmt.Fprintln(
+					os.Stderr,
+					"ERROR: got an error moving window:",
+					moveRes.err,
+				)
+				errs = append(errs, moveRes.err)
+			}
+			continue
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func moveWindow(alreadyInWSRe regexp.Regexp, wID uint64, workspaceName string, mCh chan asyncResult) {
+	outBuf := bytes.Buffer{}
+	_, err := script.Exec(
+		fmt.Sprintf(
+			`aerospace move-node-to-workspace --window-id '%d' '%s'`,
+			wID,
+			workspaceName,
+		),
+	).WithStderr(&outBuf).Stdout()
+	_, _ = fmt.Fprintln(os.Stderr, "DEBUG stdErr: got output:", outBuf.String())
+	if err != nil && !alreadyInWSRe.MatchString(outBuf.String()) {
+		mCh <- asyncResult{
+			success: false,
+			err:     err,
+		}
+	}
+	mCh <- asyncResult{
+		success: true,
+		err:     err,
+	}
 }
 
 type asyncResult struct {
