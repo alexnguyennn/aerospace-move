@@ -302,7 +302,7 @@ var ErrBlockedStart error = errors.New("app blocked from starting")
 var ErrBlockedQuit error = errors.New("app blocked from quitting")
 
 const waitIncrement = 250 * time.Millisecond
-const waitAttempts = 20
+const waitAttempts = 100
 
 func startApp(appBundleID string, ch chan asyncResult) {
 	outBuf := bytes.Buffer{}
